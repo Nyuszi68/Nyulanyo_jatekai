@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gumi-gubanc</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const App = () => {
+            const [pointCount, setPointCount] = useState(6);
+            const [points, setPoints] = useState([]);
+            const [order, setOrder] = useState([]);
+            const [targetOrder, setTargetOrder] = useState([]);
+            const [history, setHistory] = useState([]); 
+            const [selectedIndices, setSelectedIndices] = useState([]);
+            const [moves, setMoves] = useState(0);
+            const [isWon, setIsWon] = useState(false);
+            const [resetToDefault, setResetToDefault] = useState(true);
+            const [message, setMessage] = useState("ÉRD EL A CÉLKÁRTYÁN LÁTHATÓ ALAKZATOT! KÉT SZÖG KIVÁLASZTÁSÁVAL MEGCSERÉLHETED A RAJTUK LÉVŐ GUMISZÁLAKAT.");
+
+            const RADIUS = 110;
+            const CENTER = { x: 135, y: 135 };
+
+            useEffect(() => {
+                const newPoints = [];
+                for (let i = 0; i < pointCount; i++) {
+                    const angle = (i * (360 / pointCount) - 90) * (Math.PI / 180);
+                    newPoints.push({
+                        id: i,
+                        x: CENTER.x + RADIUS * Math.cos(angle),
+                        y: CENTER.y + RADIUS * Math.sin(angle)
+                    });
+                }
+                setPoints(newPoints);
+                generateTarget(pointCount, true);
+            }, [pointCount]);
+
+            const checkWin = (current, target) => {
+                if (!current.length || !target.length || current.length !== target.length) return false;
+                const n = current.length;
+                const tStr = target.join(',');
+                
+                for(let r = 0; r < n; r++) {
+                    let rotated = current.map(v => (v + r) % n);
+                    for(let start = 0; start < n; start++) {
+                        let candidate = [];
+                        for(let i = 0; i < n; i++) candidate.push(rotated[(start + i) % n]);
+                        if(candidate.join(',') === tStr) return true;
+                        let revCandidate = [...candidate].reverse();
+                        if(revCandidate.join(',') === tStr) return true;
+                    }
+                    let mirrored = current.map(v => (n - v + r) % n);
+                    for(let start = 0; start < n; start++) {
+                        let candidate = [];
+                        for(let i = 0; i < n; i++) candidate.push(mirrored[(start + i) % n]);
+                        if(candidate.join(',') === tStr) return true;
+                        let revCandidate = [...candidate].reverse();
+                        if(revCandidate.join(',') === tStr) return true;
+                    }
+                }
+                return false;
+            };
+
+            const isIdentity = (current, count) => {
+                const base = Array.from({length: count}, (_, i) => i);
+                return checkWin(current, base);
+            };
+
+            const generateTarget = (count = pointCount, forceReset = false) => {
+                setPointCount(count);
+                let base = Array.from({length: count}, (_, i) => i);
+                let newTarget = [...base];
+                let attempts = 0;
+                
+                // Shuffle logic
+                while (attempts < 100) {
+                    for (let i = 0; i < 8; i++) {
+                        const idx1 = Math.floor(Math.random() * count);
+                        const idx2 = Math.floor(Math.random() * count);
+                        if (idx1 !== idx2) {
+                            [newTarget[idx1], newTarget[idx2]] = [newTarget[idx2], newTarget[idx1]];
+                        }
+                    }
+                    if (!isIdentity(newTarget, count)) break;
+                    attempts++;
+                }
+                
+                setTargetOrder(newTarget);
+                if (resetToDefault || forceReset) {
+                    setOrder([...base]);
+                }
+                
+                setHistory([]); 
+                setMoves(0);
+                setIsWon(false);
+                setSelectedIndices([]);
+                setMessage("ÉRD EL A CÉLKÁRTYÁN LÁTHATÓ ALAKZATOT! KÉT SZÖG KIVÁLASZTÁSÁVAL MEGCSERÉLHETED A RAJTUK LÉVŐ GUMISZÁLAKAT.");
+            };
+
+            const handlePointClick = (idx) => {
+                if (isWon) return;
+                if (selectedIndices.includes(idx)) {
+                    setSelectedIndices(selectedIndices.filter(i => i !== idx));
+                    return;
+                }
+                const newSelected = [...selectedIndices, idx];
+                if (newSelected.length === 2) {
+                    performSwap(newSelected[0], newSelected[1]);
+                    setSelectedIndices([]);
+                } else {
+                    setSelectedIndices(newSelected);
+                }
+            };
+
+            const performSwap = (val1, val2) => {
+                setHistory(prev => [...prev, [...order]]);
+                const newOrder = [...order];
+                const pos1 = newOrder.indexOf(val1);
+                const pos2 = newOrder.indexOf(val2);
+                if (pos1 === -1 || pos2 === -1) return;
+                
+                [newOrder[pos1], newOrder[pos2]] = [newOrder[pos2], newOrder[pos1]];
+                setOrder(newOrder);
+                setMoves(prev => prev + 1);
+                
+                if (checkWin(newOrder, targetOrder)) {
+                    setIsWon(true);
+                    setMessage("GRATULÁLOK! MEGOLDOTTAD A FELADVÁNYT!");
+                }
+            };
+
+            const handleUndo = () => {
+                if (history.length === 0 || isWon) return;
+                setOrder(history[history.length - 1]);
+                setHistory(prev => prev.slice(0, -1));
+                setMoves(prev => prev - 1);
+            };
+
+            const renderPath = (sequence, color, width, isAnimated = false, isTarget = false) => {
+                if (!points || points.length === 0 || !sequence || sequence.length === 0) return null;
+                
+                let pathData = "";
+                let validPointsCount = 0;
+
+                for (let i = 0; i < sequence.length; i++) {
+                    const pointIndex = sequence[i];
+                    const p = points[pointIndex];
+                    if (!p) continue;
+
+                    if (validPointsCount === 0) {
+                        pathData += `M ${p.x} ${p.y} `;
+                    } else {
+                        pathData += `L ${p.x} ${p.y} `;
+                    }
+                    validPointsCount++;
+                }
+
+                if (validPointsCount > 1) {
+                    pathData += "Z"; 
+                } else {
+                    return null;
+                }
+
+                return (
+                    <path
+                        d={pathData}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={width}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={isAnimated ? "animate-pulse" : ""}
+                        style={{ filter: isTarget ? 'none' : 'drop-shadow(0px 2px 2px rgba(0,0,0,0.2))' }}
+                    />
+                );
+            };
+
+            return (
+                <div className="flex flex-col items-center justify-start min-h-screen p-8 bg-slate-50 font-sans">
+                    <div className="w-full max-w-5xl mb-12 text-center">
+                        <h1 className="text-3xl font-black text-indigo-600 tracking-tighter mb-4">Gumi-gubanc</h1>
+                        <p className={`text-sm md:text-base font-bold tracking-tight max-w-2xl mx-auto transition-colors duration-300 ${isWon ? 'text-green-600 scale-110' : 'text-slate-400'}`}>
+                            {message}
+                        </p>
+                    </div>
+
+                    <div className="max-w-6xl w-full flex flex-col md:flex-row gap-8 items-center justify-center">
+                        <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-white relative w-full md:w-auto">
+                            <div className="mb-6 flex justify-between items-center px-2">
+                                <div>
+                                    <h2 className="font-black text-slate-400 text-[10px] uppercase tracking-widest mb-3">Szögek száma</h2>
+                                    <div className="flex gap-2">
+                                        {[5, 6].map(num => (
+                                            <button 
+                                                key={num}
+                                                onClick={() => generateTarget(num, true)}
+                                                className={`w-12 h-12 flex items-center justify-center rounded-xl text-sm font-black transition-all ${pointCount === num ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                                            >
+                                                {num}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-3xl font-black text-indigo-600 block leading-none">{moves}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Lépés</span>
+                                </div>
+                            </div>
+                            
+                            <div className="relative flex items-center">
+                                <div className={`relative w-[320px] h-[320px] rounded-full border-[15px] shadow-inner flex items-center justify-center transition-all duration-500 ${isWon ? 'bg-green-50 border-green-200 animate-pulse' : 'bg-indigo-50/30 border-slate-50'}`}>
+                                    <svg width="280" height="280" viewBox="0 0 270 270" className="relative z-10">
+                                        {renderPath(order, isWon ? "#10b981" : "#4f46e5", 8, isWon)}
+                                        {points.map((p, i) => (
+                                            <g key={i} onClick={() => handlePointClick(i)} className={`${isWon ? 'cursor-default' : 'cursor-pointer'} group`}>
+                                                <circle
+                                                    cx={p.x}
+                                                    cy={p.y}
+                                                    r={selectedIndices.includes(i) ? 22 : 18}
+                                                    fill={selectedIndices.includes(i) ? "#fbbf24" : "white"}
+                                                    stroke={isWon ? "#10b981" : (selectedIndices.includes(i) ? "#d97706" : "#4f46e5")}
+                                                    strokeWidth="5"
+                                                    className="transition-all duration-200"
+                                                />
+                                                <text x={p.x} y={p.y+5} textAnchor="middle" fontSize="13" fontStyle="normal" fontWeight="900" fill={isWon ? "#065f46" : "#1e1b4b"}>
+                                                    {i+1}
+                                                </text>
+                                            </g>
+                                        ))}
+                                    </svg>
+                                </div>
+                                {isWon && (
+                                    <div className="absolute -right-20 top-1/2 -translate-y-1/2 flex flex-col items-center animate-bounce">
+                                        <span className="text-6xl drop-shadow-lg">🏆</span>
+                                        <span className="text-[10px] font-black text-green-600 mt-2 tracking-widest uppercase">Kész!</span>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="mt-10 flex justify-center gap-4">
+                                <button
+                                    onClick={handleUndo}
+                                    disabled={history.length === 0 || isWon}
+                                    className={`px-12 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-md transition-all ${
+                                        history.length === 0 || isWon 
+                                        ? 'text-slate-300 bg-slate-50 border border-slate-200 opacity-50 cursor-not-allowed' 
+                                        : 'text-indigo-600 bg-white border border-indigo-200 hover:bg-indigo-50 shadow-[0_4px_0_0_rgba(200,200,230,1)] active:translate-y-1 active:shadow-none'
+                                    }`}
+                                >
+                                    Visszalépés
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-8 w-full md:w-auto">
+                            <div className="bg-white p-3 rounded-[3rem] shadow-xl border border-slate-100">
+                                <div className="bg-gradient-to-br from-amber-50 to-orange-50 p-10 rounded-[2.8rem] flex flex-col items-center">
+                                    <h2 className="font-black text-orange-600 mb-8 uppercase text-xs tracking-[0.4em]">Célkártya</h2>
+                                    <div className="bg-white rounded-[2.5rem] p-8 shadow-inner border-4 border-orange-100/50">
+                                        <svg width="200" height="200" viewBox="0 0 270 270">
+                                            {renderPath(targetOrder, "#f59e0b", 6, false, true)}
+                                            {points.map((p, i) => (
+                                                <circle key={i} cx={p.x} cy={p.y} r="4" fill="#fcd34d" stroke="#f59e0b" strokeWidth="2" />
+                                            ))}
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+                                <label className="flex items-center gap-3 cursor-pointer group">
+                                    <div className="relative">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={resetToDefault} 
+                                            onChange={(e) => setResetToDefault(e.target.checked)}
+                                            className="sr-only"
+                                        />
+                                        <div className={`w-12 h-6 rounded-full transition-colors ${resetToDefault ? 'bg-indigo-600' : 'bg-slate-300'}`}></div>
+                                        <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${resetToDefault ? 'translate-x-6' : ''}`}></div>
+                                    </div>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-indigo-600 transition-colors">Kezdés alaphelyzetből</span>
+                                </label>
+                            </div>
+                            <button 
+                                onClick={() => generateTarget()} 
+                                className="flex items-center justify-center gap-3 py-6 bg-indigo-600 text-white rounded-[2.5rem] font-black uppercase text-xs tracking-[0.25em] shadow-[0_8px_0_0_rgba(50,50,120,1)] hover:bg-indigo-700 active:translate-y-1 active:shadow-none transition-all"
+                            >
+                                Új feladványt kérek
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
